@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>美工妹子 · UI Designer Portfolio</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #e7eaee; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+  #viewport { position: fixed; inset: 0; overflow: hidden; }
+  #track {
+    position: absolute; inset: 0;
+    width: 100%; height: 300vh;
+    transform: translate3d(0, 0, 0);
+    transition: transform 900ms cubic-bezier(.22,.78,.2,1);
+    will-change: transform;
+  }
+  #track.is-instant { transition: none !important; }
+  .screen {
+    position: relative;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    background: #fff;
+  }
+  .screen iframe {
+    display: block;
+    width: 100%; height: 100%;
+    border: 0;
+    background: transparent;
+  }
+  .screen[aria-hidden="true"] iframe { pointer-events: none; }
+
+  /* 第二屏 → 第三屏：第二屏从中间分开，第三屏由中心逐步露出。 */
+  .split-transition {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    background: transparent;
+  }
+  .split-transition.is-visible { visibility: visible; }
+  .split-half {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc(50% + 1px);
+    overflow: hidden;
+    background: #fff;
+    will-change: transform;
+    transform: translate3d(0,0,0);
+    transition: transform 980ms cubic-bezier(.76,0,.22,1);
+    backface-visibility: hidden;
+  }
+  .split-half--left { left: 0; }
+  .split-half--right { right: 0; }
+  .split-half iframe {
+    position: absolute;
+    top: 0;
+    width: 100vw;
+    height: 100vh;
+    border: 0;
+    display: block;
+    background: #fff;
+    pointer-events: none;
+  }
+  .split-half--left iframe { left: 0; }
+  .split-half--right iframe { right: 0; }
+  .split-transition.is-open .split-half--left { transform: translate3d(-101%,0,0); }
+  .split-transition.is-open .split-half--right { transform: translate3d(101%,0,0); }
+  .page-dots {
+    position: fixed; right: 22px; top: 50%; z-index: 100;
+    transform: translateY(-50%);
+    display: grid; gap: 10px;
+  }
+  .page-dot {
+    width: 7px; height: 7px; padding: 0; border: 0; border-radius: 999px;
+    background: rgba(28,38,52,.25); cursor: pointer;
+    transition: height .28s ease, background .28s ease, transform .28s ease;
+  }
+  .page-dot.is-active { height: 26px; background: rgba(28,38,52,.72); }
+  @media (max-width: 800px) { .page-dots { right: 10px; } }
+  @media (prefers-reduced-motion: reduce) {
+    #track, .split-half { transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<div id="viewport">
+  <div id="track">
+    <section class="screen" data-index="0" aria-hidden="false"><iframe id="frame0" src="./screens/screen1/index.html?v=contact-modal-20261013-1" title="首页"></iframe></section>
+    <section class="screen" data-index="1" aria-hidden="true"><iframe id="frame1" src="./screens/screen2/index.html" title="自我介绍"></iframe></section>
+    <section class="screen" data-index="2" aria-hidden="true"><iframe id="frame2" src="./screens/screen3/index.html" title="合作流程"></iframe></section>
+  </div>
+</div>
+<div class="split-transition" id="splitTransition" aria-hidden="true">
+  <div class="split-half split-half--left">
+    <iframe id="splitFrameLeft" src="./screens/screen2/index.html" tabindex="-1" title=""></iframe>
+  </div>
+  <div class="split-half split-half--right">
+    <iframe id="splitFrameRight" src="./screens/screen2/index.html" tabindex="-1" title=""></iframe>
+  </div>
+</div>
+<nav class="page-dots" aria-label="页面切换">
+  <button class="page-dot is-active" data-to="0" aria-label="第1屏"></button>
+  <button class="page-dot" data-to="1" aria-label="第2屏"></button>
+  <button class="page-dot" data-to="2" aria-label="第3屏"></button>
+</nav>
+<script>
+(() => {
+  const track = document.getElementById('track');
+  const sections = [...document.querySelectorAll('.screen')];
+  const frames = [...document.querySelectorAll('#track iframe')];
+  const dots = [...document.querySelectorAll('.page-dot')];
+  const splitTransition = document.getElementById('splitTransition');
+  const splitFrames = [
+    document.getElementById('splitFrameLeft'),
+    document.getElementById('splitFrameRight')
+  ];
+  let index = 0;
+  let locked = false;
+  let touchStartY = null;
+  const LOCK_MS = 930;
+  const SPLIT_MS = 980;
+
+  function notifyEnter(next, direction, entryMode = null) {
+    try { frames[next].contentWindow.postMessage({ type: 'portfolio-enter', direction, entryMode }, '*'); } catch (_) {}
+  }
+
+  function notifySplitFrames() {
+    splitFrames.forEach(frame => {
+      try { frame.contentWindow.postMessage({ type: 'portfolio-enter', direction: -1 }, '*'); } catch (_) {}
+    });
+  }
+
+  splitFrames.forEach(frame => frame.addEventListener('load', () => {
+    try { frame.contentWindow.postMessage({ type: 'portfolio-enter', direction: -1 }, '*'); } catch (_) {}
+  }));
+
+  function setCurrent(next) {
+    index = next;
+    sections.forEach((section, i) => section.setAttribute('aria-hidden', i === index ? 'false' : 'true'));
+    dots.forEach((dot, i) => dot.classList.toggle('is-active', i === index));
+  }
+
+  function jumpTrack(next) {
+    track.classList.add('is-instant');
+    track.style.transform = `translate3d(0, -${next * 100}vh, 0)`;
+    track.getBoundingClientRect();
+    track.classList.remove('is-instant');
+  }
+
+  function openThirdWithSplit(entryMode = null) {
+    if (locked || index !== 1) return;
+    locked = true;
+    notifySplitFrames();
+    notifyEnter(2, 1, entryMode);
+    splitTransition.classList.remove('is-open');
+    splitTransition.classList.add('is-visible');
+    splitTransition.setAttribute('aria-hidden', 'false');
+
+    // 复制画面完整遮挡当前屏幕后，把真实轨道切到第三屏，再向左右拉开。
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      jumpTrack(2);
+      setCurrent(2);
+      splitTransition.classList.add('is-open');
+    }));
+
+    setTimeout(() => {
+      splitTransition.classList.remove('is-visible');
+      splitTransition.setAttribute('aria-hidden', 'true');
+      locked = false;
+    }, SPLIT_MS + 90);
+  }
+
+  function closeThirdToSecond() {
+    if (locked || index !== 2) return;
+    locked = true;
+    notifySplitFrames();
+    notifyEnter(1, -1);
+    splitTransition.classList.add('is-visible', 'is-open');
+    splitTransition.setAttribute('aria-hidden', 'false');
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      splitTransition.classList.remove('is-open');
+    }));
+
+    setTimeout(() => {
+      jumpTrack(1);
+      setCurrent(1);
+      splitTransition.classList.remove('is-visible');
+      splitTransition.setAttribute('aria-hidden', 'true');
+      locked = false;
+    }, SPLIT_MS + 40);
+  }
+
+  function go(next, direction = Math.sign(next - index) || 1, entryMode = null) {
+    next = Math.max(0, Math.min(sections.length - 1, next));
+    if (next === index || locked) return;
+    if (index === 1 && next === 2) {
+      openThirdWithSplit(entryMode);
+      return;
+    }
+    if (index === 2 && next === 1) {
+      closeThirdToSecond();
+      return;
+    }
+    locked = true;
+    setCurrent(next);
+    track.style.transform = `translate3d(0, -${next * 100}vh, 0)`;
+    // Set the destination screen to the correct boundary state before it becomes interactive.
+    notifyEnter(next, direction, entryMode);
+    setTimeout(() => { locked = false; }, LOCK_MS);
+  }
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data || {};
+    if (msg.type !== 'portfolio-nav') return;
+    const sourceIndex = frames.findIndex(f => f.contentWindow === e.source);
+    if (sourceIndex !== index) return;
+    if (Number.isInteger(msg.targetIndex)) go(msg.targetIndex, Math.sign(msg.targetIndex - index) || 1, msg.entryMode || null);
+    else if (msg.direction) go(index + Math.sign(msg.direction), Math.sign(msg.direction));
+  });
+
+  dots.forEach(dot => dot.addEventListener('click', () => {
+    const next = Number(dot.dataset.to);
+    go(next, Math.sign(next - index) || 1);
+  }));
+
+  // Fallback when focus is on the parent document rather than an iframe.
+  window.addEventListener('wheel', (e) => {
+    if (locked || Math.abs(e.deltaY) < 12) return;
+    if (index === 0 && e.deltaY > 0) go(1, 1);
+  }, { passive: true });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Home') go(0, -1);
+    if (e.key === 'End') go(2, 1);
+  });
+
+  window.addEventListener('touchstart', (e) => { touchStartY = e.touches[0]?.clientY ?? null; }, {passive:true});
+  window.addEventListener('touchend', (e) => {
+    if (touchStartY == null || locked) return;
+    const y = e.changedTouches[0]?.clientY ?? touchStartY;
+    const dy = touchStartY - y;
+    touchStartY = null;
+    if (Math.abs(dy) < 50) return;
+    if (index === 0 && dy > 0) go(1, 1);
+  }, {passive:true});
+})();
+</script>
+</body>
+</html>
